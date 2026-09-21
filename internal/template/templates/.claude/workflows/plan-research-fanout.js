@@ -22,8 +22,8 @@
 //   - No in-workflow file writes — research.md is written by manager-spec / the orchestrator OUTSIDE
 //     this workflow; the synthesizer returns a markdown STRING, it does not touch the filesystem.
 //   - At most 4 lenses — args.lenses is hard-capped by .slice(0, 4); more lenses is an anti-pattern.
-//   - Explorers stay at effort 'medium' — do NOT raise an explorer to xhigh (only the synthesizer,
-//     which reconciles cross-lens contradictions, earns effort 'high').
+//   - Explorers carry no effort or model pin: they inherit the session's (only the synthesizer,
+//     which reconciles cross-lens contradictions, keeps its effort 'high').
 //
 // Fail-honest semantics: a single null lens is tolerated (its gap is named in the synthesis);
 //   TWO OR MORE null lenses abort the Synthesize phase and return insufficient_coverage naming the
@@ -95,7 +95,7 @@ owns each of them). Do NOT speculate beyond your evidence. If this lens yields n
 under every heading is the correct answer.`
 
 const reports = await parallel(LENSES.map((lens) => () =>
-  agent(EXPLORE_PROMPT(lens), { label: `explore:${lens}`, phase: 'Explore', agentType: 'Explore', effort: 'medium' })
+  agent(EXPLORE_PROMPT(lens), { label: `explore:${lens}`, phase: 'Explore', agentType: 'Explore' })
 ))
 
 // Pair each lens with its report (null where the agent did not return — e.g. rate-limited).
