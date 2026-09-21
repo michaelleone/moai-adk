@@ -136,7 +136,7 @@ Capture and reuse learnings from user corrections and agent failures across sess
 
 Rules:
 - When user corrects agent behavior, capture the pattern in auto-memory
-- Store lessons as topic files in auto-memory — one fact per `feedback_*.md` file under `~/.claude/projects/{project-hash}/memory/`, indexed by `MEMORY.md`. This topic-file convention (`feedback_*.md` topic files + the `MEMORY.md` index) is the single designated lesson store; the legacy `lessons.md` is superseded (kept on disk marked `[SUPERSEDED]`, content not migrated)
+- Store lessons as topic files in auto-memory — one fact per `feedback_*.md` file under `~/.claude/projects/{project-hash}/memory/`, indexed by `MEMORY.md`. A project's `lessons.md` in that directory is also a live lesson store: `/moai run` reads it at Lessons Loading (`.claude/skills/moai/workflows/run/context-loading.md` § Lessons Loading), so it is kept current rather than retired
 - Each lesson entry: category, incorrect pattern, correct approach, date added
 - Review relevant lessons before starting tasks in the same domain
 - Lesson categories: architecture, testing, naming, workflow, security, performance, hardcoding
