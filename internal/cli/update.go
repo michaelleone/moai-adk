@@ -663,6 +663,8 @@ func applyUpdateProfile(projectRoot, profileFlag string) error {
 //     reexecNewBinary to prevent infinite re-exec loops).
 //  3. The current binary is a dev build (version contains "dirty", "dev",
 //     or "none"), where self-update is meaningless.
+//  4. The current binary is a custom build ("3.1.2+adax.1") and --binary was
+//     not given: a fork build is replaced only on request.
 func shouldSkipBinaryUpdate(cmd *cobra.Command) bool {
 	// Flag check (only the update command registers this flag)
 	if f := cmd.Flags().Lookup("templates-only"); f != nil && f.Value.String() == "true" {
@@ -674,10 +676,14 @@ func shouldSkipBinaryUpdate(cmd *cobra.Command) bool {
 		return true
 	}
 
-	// Dev build detection (reuse pattern from buildAutoUpdateFunc in deps.go)
 	v := version.GetVersion()
-	if strings.Contains(v, "dirty") || v == "dev" || strings.Contains(v, "none") {
+	if isDevBuild(v) {
 		return true
+	}
+
+	if isCustomBuild(v) {
+		f := cmd.Flags().Lookup("binary")
+		return f == nil || f.Value.String() != "true"
 	}
 
 	return false

@@ -478,11 +478,8 @@ func buildAutoUpdateFunc() hook.AutoUpdateFunc {
 	return func(ctx context.Context) (*hook.AutoUpdateResult, error) {
 		currentVersion := version.GetVersion()
 
-		// Skip dev builds
-		isDevBuild := strings.Contains(currentVersion, "dirty") ||
-			currentVersion == "dev" ||
-			strings.Contains(currentVersion, "none")
-		if isDevBuild {
+		// Skip dev and custom builds, and honour MOAI_SKIP_BINARY_UPDATE
+		if autoUpdateBlocked(currentVersion) {
 			return &hook.AutoUpdateResult{Updated: false}, nil
 		}
 
