@@ -56,6 +56,9 @@ var workflowOptMirroredPaths = []string{
 	// single-tree edits on these canonical worktree/session-handoff rules are caught at CI.
 	".claude/rules/moai/workflow/worktree-integration.md",
 	".claude/rules/moai/workflow/session-handoff-examples.md",
+	// session-handoff-full.md: the verbatim full text behind the session-handoff.md
+	// digest. Its digest is byte-parity enrolled above, so the full text is too.
+	".claude/rules/moai/workflow/session-handoff-full.md",
 	// model-policy.md mirror parity. The GLM-mode reconciliation subsection
 	// (availableModels [1m] expansion) is added to BOTH trees byte-identically;
 	// pre-existing internal dates were stripped from both per CLAUDE.local.md §25 so

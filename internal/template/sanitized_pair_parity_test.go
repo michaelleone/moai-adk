@@ -92,6 +92,11 @@ var sanitizedPairPaths = []string{
 	// doctrine preserved verbatim). Doctrine parity is enforced here, NOT by
 	// byte-parity (rule_template_mirror_test.go).
 	".claude/rules/moai/workflow/main-checkout-branch-guard.md",
+	// The two sanitized pairs above now load as digests; their verbatim full
+	// text lives in these paths-scoped companions, which keep the same
+	// source-vs-mirror sanitization and so get the same doctrine-parity guard.
+	".claude/rules/moai/core/verification-claim-integrity-full.md",
+	".claude/rules/moai/workflow/main-checkout-branch-guard-full.md",
 }
 
 // tokenNormalizer pairs a regex matching an intentionally-divergent internal

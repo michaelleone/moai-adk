@@ -29,7 +29,11 @@ import (
 // 트리거(main 전용) 밖이라 개별 카드 단계에서 미검출된 선결 결함이다. 근본 해결
 // (kanban-dispatch 등 대형 always-loaded 룰의 스텁+지연 로딩 다이어트)은 별도 카드로
 // 진행하며, 그 착지 전까지의 임시 상향으로 75,000 → 76,000으로 올린다.
-const AlwaysLoadedTokenBudget = 76000
+//
+// 하향 근거(2026-09-24): 스텁+지연 로딩 다이어트가 착지했다 — always-loaded 규칙 14개를
+// 요약본과 paths 한정 `<name>-full.md` 동반 파일로 분리해 측정 표면이 약 34,999 토큰으로
+// 줄었다. 최초 도출과 같은 방식(측정값 + 약 15% 여유를 천 단위로 올림)으로 76,000 → 41,000.
+const AlwaysLoadedTokenBudget = 41000
 
 // memoryHeadLineCap / memoryHeadByteCap는 가드가 측정하는 MEMORY.md head 범위를 제한한다.
 // Claude Code auto-memory 로더 상한(첫 200줄 또는 25KB 중 먼저 도달하는 쪽)과 일치한다.
