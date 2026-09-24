@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -73,8 +74,10 @@ func RunAstGrepGateV2(ctx context.Context, projectDir string, cfg *AstGrepGateCo
 	}
 
 	// ── 1. Suppression policy check (sg-independent, pure-Go) ─────────────────
-	// REQ-UTIL-002-010/011/012: verify @MX:REASON pairing for ast-grep-ignore comments
-	sourceFiles := walkSourceFiles(projectDir)
+	// REQ-UTIL-002-010/011/012: verify @MX:REASON pairing for ast-grep-ignore comments.
+	// It honours .gitignore and skips the same excluded roots the scan's
+	// findings are filtered from; see walkSourceFiles.
+	sourceFiles := walkSourceFiles(ctx, projectDir)
 	var allViolations []SuppressionViolation
 	for _, fp := range sourceFiles {
 		allViolations = append(allViolations, checkSuppressionPairing(fp)...)
@@ -193,7 +196,9 @@ const astGrepScanTimeout = 30 * time.Second
 // as out-of-scope for the ast-grep gate. SPEC-GATE-ASTGREP-REPAIR-001 M2
 // (REQ-GAR-004/005): worktree duplicates, vendored code, test sources, and
 // test fixtures do not represent project quality regressions and are filtered
-// out at the gate layer before reporting/blocking.
+// out at the gate layer before reporting/blocking. The suppression policy
+// check skips the same roots (walkSourceFiles), so both gate steps share one
+// exclusion boundary.
 //
 // Substring match on the FORWARD-SLASH path keeps the filter cross-platform
 // and resolution-free: ast-grep emits forward-slash paths in its JSON output
@@ -352,31 +357,103 @@ func checkSuppressionPairing(filePath string) []SuppressionViolation {
 	return violations
 }
 
-// walkSourceFiles recursively walks source files under projectDir.
-// Returns only files for which commentPrefix is non-empty.
-// Suppression policy checks apply to production code, so *_test.go and common exclusion paths are skipped.
-func walkSourceFiles(projectDir string) []string {
+// walkSkipDirs names directories the suppression check never reads, at any depth.
+var walkSkipDirs = map[string]bool{
+	".git":         true,
+	"vendor":       true,
+	"node_modules": true,
+	"__pycache__":  true,
+}
+
+// walkSourceFiles returns the source files under projectDir that the
+// suppression policy applies to: files for which commentPrefix is non-empty,
+// outside walkSkipDirs and outside astGrepExcludedPathPatterns (worktrees,
+// vendor, testdata, *_test.go), the same roots the sg findings are filtered
+// from. Suppression policy checks apply to production code.
+//
+// In a git work tree the candidates are the tracked and untracked-but-not-
+// ignored files, so gitignored content is never checked: build output,
+// virtualenvs, and nested clones or worktrees such as .claude/worktrees/*,
+// whose fixtures would otherwise fail every commit of the enclosing project. Outside git it walks projectDir, pruning the same
+// roots. Excluded-root matching uses the path relative to projectDir, so a
+// project that itself lives under such a root is still checked.
+func walkSourceFiles(ctx context.Context, projectDir string) []string {
+	rels, ok := gitListedFiles(ctx, projectDir)
+	if !ok {
+		rels = walkedFiles(projectDir)
+	}
 	var files []string
+	for _, rel := range rels {
+		if isSkippedRel(rel) || commentPrefix(rel) == "" {
+			continue
+		}
+		files = append(files, filepath.Join(projectDir, rel))
+	}
+	return files
+}
+
+// gitListedFiles lists the files git would show under projectDir: tracked plus
+// untracked-but-not-ignored, as paths relative to projectDir. A nested
+// repository appears as a single directory entry and is not descended into.
+// ok is false outside a git work tree or when git is unavailable.
+func gitListedFiles(ctx context.Context, projectDir string) (rels []string, ok bool) {
+	if projectDir == "" {
+		return nil, false
+	}
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = projectDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	seen := make(map[string]bool)
+	for _, rel := range strings.Split(string(out), "\x00") {
+		// --cached repeats a path once per stage during a merge conflict.
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		rels = append(rels, filepath.FromSlash(rel))
+	}
+	return rels, true
+}
+
+// walkedFiles walks projectDir and returns file paths relative to it, pruning
+// skipped and excluded directories instead of descending into them.
+func walkedFiles(projectDir string) []string {
+	var rels []string
 	_ = filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil
 		}
-		// Exclude vendor, .git, node_modules, etc.
-		parts := strings.Split(filepath.ToSlash(path), "/")
-		for _, part := range parts {
-			if part == "vendor" || part == ".git" || part == "node_modules" || part == "__pycache__" {
-				return nil
+		rel, relErr := filepath.Rel(projectDir, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			if isSkippedRel(rel + string(filepath.Separator)) {
+				return filepath.SkipDir
 			}
-		}
-		// Exclude *_test.go files: test files often use ast-grep-ignore as test fixture data
-		// and should be excluded from suppression policy checks.
-		if strings.HasSuffix(d.Name(), "_test.go") {
 			return nil
 		}
-		if commentPrefix(path) != "" {
-			files = append(files, path)
-		}
+		rels = append(rels, rel)
 		return nil
 	})
-	return files
+	return rels
+}
+
+// isSkippedRel reports whether a path relative to the project root lies in a
+// skipped directory or under an excluded root. A directory is passed with a
+// trailing separator so it matches the excluded roots' "/<name>/" patterns.
+func isSkippedRel(rel string) bool {
+	slash := "/" + filepath.ToSlash(rel)
+	if isExcludedPath(slash) {
+		return true
+	}
+	for _, part := range strings.Split(slash, "/") {
+		if walkSkipDirs[part] {
+			return true
+		}
+	}
+	return false
 }
