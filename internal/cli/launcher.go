@@ -721,8 +721,8 @@ func launchClaudeDefault(profileName string, extraArgs []string) error {
 
 	// 6. Resolve model string. Under a GLM backend the --model flag MUST carry a
 	// slot alias (opus/sonnet/...) so it routes through the ANTHROPIC_DEFAULT_*_MODEL
-	// slot env that setGLMEnv configured; under a Claude backend short aliases
-	// expand to canonical ids as before (byte-identical to expandModelString).
+	// slot env that setGLMEnv configured; under a Claude backend the value passes
+	// through unchanged so Claude Code resolves its own aliases.
 	glmBackend := false
 	if root, err := findProjectRoot(); err == nil {
 		glmBackend = resolveGLMBackendForLaunch(root)
@@ -1092,28 +1092,6 @@ func syncPermissionModeToSettingsLocal(settingsPath string, permissionMode strin
 	})
 }
 
-// expandModelString normalizes moai-specific model strings into valid Claude
-// Code --model values. Short aliases (opus, sonnet, haiku, opusplan) are
-// resolved to their canonical Claude Code model id via the central
-// template.ModelAliasTable; the "[1m]" suffix is preserved across resolution
-// because Claude Code natively supports it (e.g. "opus[1m]",
-// "claude-opus-4-7[1m]") to enable the 1M token context window. Values that
-// are already canonical ids or are unknown pass through unchanged.
-func expandModelString(model string) string {
-	if model == "" {
-		return model
-	}
-	base, suffix := splitModelSuffix(model)
-	resolved, ok := template.ModelAliasTable[base]
-	if !ok {
-		return model // already canonical or unknown — pass through unchanged
-	}
-	if suffix == "" {
-		return resolved
-	}
-	return resolved + suffix
-}
-
 // splitModelSuffix separates a model string into its base alias/id and the
 // optional "[1m]" context-window suffix. The suffix is recognized only when it
 // appears as a literal trailing token; mid-string occurrences are left intact.
@@ -1198,8 +1176,11 @@ func buildEnvForGLMLaunch(effort string, base []string) []string {
 }
 
 // resolveMainSessionModel resolves the --model flag value for the main session,
-// GLM-aware. Under a Claude backend (glmBackend==false) it is byte-identical to
-// expandModelString (short alias → canonical id). Under a GLM backend
+// GLM-aware. Under a Claude backend (glmBackend==false) the value passes through
+// unchanged: Claude Code resolves its own aliases (opus, sonnet, fable, haiku,
+// opusplan and their [1m] forms) to the newest release it knows, whereas
+// expanding them through template.ModelAliasTable would pin the launch to the
+// id that was current when moai was built. Under a GLM backend
 // (glmBackend==true) it REVERSE-maps any canonical id back to its slot alias
 // (opus/sonnet/haiku/fable) via template.ModelAliasFromCanonicalID, so the
 // --model flag routes through the ANTHROPIC_DEFAULT_*_MODEL slot env that
@@ -1210,7 +1191,7 @@ func buildEnvForGLMLaunch(effort string, base []string) []string {
 // unchanged; the [1m] suffix is preserved; unknown values pass through.
 func resolveMainSessionModel(prefsModel string, glmBackend bool) string {
 	if !glmBackend {
-		return expandModelString(prefsModel)
+		return prefsModel
 	}
 	if prefsModel == "" {
 		return ""

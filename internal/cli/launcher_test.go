@@ -664,42 +664,42 @@ func TestContainsPermissionMode(t *testing.T) {
 	}
 }
 
-func TestExpandModelString(t *testing.T) {
-	// The test exercises the central ModelAliasTable via expandModelString.
-	// Short aliases (opus/sonnet/haiku) MUST resolve to their canonical CC ids;
-	// the [1m] suffix MUST be preserved across resolution; full ids and unknown
-	// values pass through unchanged. opusplan is a CC-native routing alias with
-	// no full-id expansion, so it resolves to itself.
+func TestResolveMainSessionModel_ClaudeBackendPassesThrough(t *testing.T) {
+	// Under a Claude backend the --model value reaches Claude Code unchanged.
+	// Claude Code resolves its own aliases (opus, sonnet, fable, haiku,
+	// opusplan, and the [1m] variants) to the newest release it knows, so
+	// expanding them through ModelAliasTable would freeze the launch on the
+	// model that was current when moai was built. Full ids and unknown values
+	// pass through as before.
 	tests := []struct {
 		name  string
 		model string
-		want  string
 	}{
-		{"empty string", "", ""},
-		// Short alias → canonical id resolution (forward map via central table)
-		{"opus alias resolves", "opus", template.ModelIDOpus5},
-		{"sonnet alias resolves", "sonnet", template.ModelAliasCanonicalID("sonnet")},
-		{"haiku alias resolves", "haiku", template.ModelAliasCanonicalID("haiku")},
-		// [1m] suffix preserved across resolution
-		{"opus alias 1m resolves", "opus[1m]", template.ModelIDOpus5 + "[1m]"},
-		{"sonnet alias 1m resolves", "sonnet[1m]", template.ModelAliasCanonicalID("sonnet") + "[1m]"},
-		// opusplan is its own canonical form (CC-native routing alias, no full-id)
-		{"opusplan resolves to self", "opusplan", "opusplan"},
+		{"empty string", ""},
+		// Every ModelAliasTable key is a Claude Code alias: pass it through
+		{"opus alias", "opus"},
+		{"sonnet alias", "sonnet"},
+		{"fable alias", "fable"},
+		{"haiku alias", "haiku"},
+		{"opusplan alias", "opusplan"},
+		{"opus alias 1m", "opus[1m]"},
+		{"sonnet alias 1m", "sonnet[1m]"},
+		{"fable alias 1m", "fable[1m]"},
 		// Full canonical ids pass through unchanged
-		{"full opus 4-7 passthrough", "claude-opus-4-7", "claude-opus-4-7"},
-		{"full opus 4-6 passthrough", "claude-opus-4-6", "claude-opus-4-6"},
-		{"full sonnet passthrough", "claude-sonnet-4-6", "claude-sonnet-4-6"},
-		{"full haiku passthrough", "claude-haiku-4-5", "claude-haiku-4-5"},
-		{"full opus 1m passthrough", "claude-opus-4-6[1m]", "claude-opus-4-6[1m]"},
+		{"current opus id", template.ModelIDOpus5},
+		{"full opus 4-7", "claude-opus-4-7"},
+		{"full sonnet", "claude-sonnet-4-6"},
+		{"full haiku", "claude-haiku-4-5"},
+		{"full opus 1m", "claude-opus-4-6[1m]"},
 		// Unknown values pass through unchanged
-		{"arbitrary model passthrough", "some-model", "some-model"},
-		{"arbitrary 1m passthrough", "future-model[1m]", "future-model[1m]"},
+		{"arbitrary model", "some-model"},
+		{"arbitrary 1m", "future-model[1m]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := expandModelString(tt.model)
-			if got != tt.want {
-				t.Errorf("expandModelString(%q) = %q, want %q", tt.model, got, tt.want)
+			got := resolveMainSessionModel(tt.model, false)
+			if got != tt.model {
+				t.Errorf("resolveMainSessionModel(%q, false) = %q, want %q unchanged", tt.model, got, tt.model)
 			}
 		})
 	}
@@ -979,7 +979,7 @@ func TestResolveMainSessionModel_GLMAvoidsCanonicalID(t *testing.T) {
 		{"glm alias with 1m suffix preserved", "opus[1m]", true, "opus[1m]"},
 		{"glm canonical id reverse-mapped to alias", "claude-opus-4-8", true, "opus"},
 		{"glm deprecated canonical id reverse-mapped", "claude-opus-4-7", true, "opus"},
-		{"claude backend alias expands to canonical id", "opus", false, template.ModelIDOpus5},
+		{"claude backend alias passes through", "opus", false, "opus"},
 		{"claude backend canonical passes through", "claude-opus-4-8", false, "claude-opus-4-8"},
 		{"glm empty stays empty", "", true, ""},
 		{"glm unknown value passes through", "custom-xyz", true, "custom-xyz"},

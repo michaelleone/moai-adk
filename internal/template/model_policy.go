@@ -62,8 +62,9 @@ const ModelIDOpus48 = "claude-opus-4-8"
 // needs the alias→id resolution MUST read from this table rather than
 // hard-coding a literal, so the mapping stays in one place.
 //
-// The forward direction (alias → canonical id) is used by expandModelString in
-// launcher.go. The reverse direction (canonical id → alias) is performed by
+// The launcher does not use the forward direction (alias → canonical id):
+// moai cc passes aliases to Claude Code unchanged, so Claude Code picks the
+// newest release. The reverse direction (canonical id → alias) is performed by
 // ModelAliasFromCanonicalID, which consults ModelAliasTable for the current id
 // and ModelDeprecatedCanonicalIDs for superseded ids that still appear in
 // historical prefs files.
@@ -73,7 +74,7 @@ const ModelIDOpus48 = "claude-opus-4-8"
 // total over the wizard picker surface.
 //
 // @MX:ANCHOR: [AUTO] ModelAliasTable — single SSOT for alias↔canonical-id mapping
-// @MX:REASON: [AUTO] fan_in >= 3 (launcher.go expandModelString + profile_setup.go normalizeModel + settings/schema.go modelOptions); hardcoding-prevention per CLAUDE.local.md §14
+// @MX:REASON: [AUTO] fan_in >= 3 (web/validate.go allowed models + profile_setup.go normalizeModel + ModelAliasFromCanonicalID); hardcoding-prevention per CLAUDE.local.md §14
 var ModelAliasTable = map[string]string{
 	"opus":     ModelIDOpus5,
 	"sonnet":   "claude-sonnet-5",
