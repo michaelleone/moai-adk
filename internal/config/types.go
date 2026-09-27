@@ -581,6 +581,18 @@ type AgentModelGuardConfig struct {
 type CodexConfig struct {
 	ReviewGate CodexReviewGateConfig `yaml:"review_gate"`
 	Task       CodexTaskConfig       `yaml:"task"`
+
+	// Model and Effort are the Codex-only model id and reasoning effort. The
+	// model reaches every codex request (codex_audit, codex_task, the review
+	// gate); the effort reaches turn/start requests only (codex_task and
+	// adversarial codex_audit), because review/start carries no effort field.
+	// Both default empty, meaning unset: codex then resolves through the
+	// llm.yaml model/effort SSOT as before. They exist so a Codex model can be chosen
+	// without writing it into llm.agent_overrides, whose sync-auditor key is
+	// shared with the Claude auditor spawn. Read fail-open by
+	// readCodexModelEffort in internal/cli.
+	Model  string `yaml:"model"`
+	Effort string `yaml:"effort"`
 }
 
 // CodexTaskConfig mirrors workflow.codex.task.* — the opt-in surface for the

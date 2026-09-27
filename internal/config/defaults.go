@@ -764,6 +764,10 @@ func NewDefaultWorkflowConfig() WorkflowConfig {
 			Task: CodexTaskConfig{
 				AllowWrite: false,
 			},
+			// Codex-only model/effort ship unset: codex keeps resolving through
+			// the llm.yaml SSOT until a maintainer sets them in local config.
+			Model:  "",
+			Effort: "",
 		},
 		// SPEC-AUDIT-MULTI-MODEL-001 M5 (REQ-AMM-013 / AC-AMM-018 / C6): the
 		// multi-model review gate ships default-OFF (BranchGuard pattern —

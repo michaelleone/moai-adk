@@ -173,25 +173,54 @@ func codexServableModel(model string) bool {
 	return false
 }
 
-// codexSSOTModelEffort resolves the codex model + effort through the model/effort
-// SSOT (template.ResolveAgentModelEffort, REQ-CX2-002) ONLY — it NEVER reads
-// agent frontmatter or the per-agent override map directly (C4; the negative
-// guard is TestMCPAudit_NoDirectFrontmatterRead, the positive one is
-// TestCodexSession_ResolvedModelReachesTransmittedParams).
+// codexSSOTModelEffort resolves the codex model + effort for projectDir. Two
+// sources, in precedence order:
 //
-// The cell is returned whole or not at all: when the resolved model is not
-// codex-servable the paired effort is dropped with it, because an effort value
-// from another backend's vocabulary is no more transmittable than its model id
-// (ReasoningEffort is documented as "a non-empty reasoning effort value
-// advertised by the model").
+//  1. the Codex-only keys workflow.codex.model / workflow.codex.effort
+//     (readCodexModelEffort), each applied independently when non-empty;
+//  2. the model/effort SSOT (template.ResolveAgentModelEffort, REQ-CX2-002),
+//     via codexProfileModelEffort.
+//
+// It NEVER reads agent frontmatter or the per-agent override map directly (C4;
+// the negative guard is TestMCPAudit_NoDirectFrontmatterRead, the positive one
+// is TestCodexSession_ResolvedModelReachesTransmittedParams). When both
+// Codex-only keys are empty the result is exactly the SSOT cell, so projects
+// that never set them see no change.
 //
 // projectDir is the tree being reviewed (the review gate passes the hook's
 // project root, which need not equal the server's own cwd); an empty value falls
 // back to the resolver seam.
+//
+// @MX:NOTE: [AUTO] workflow.codex.model bypasses codexServableModel on purpose.
+// The filter protects callers who never chose a codex model from having the
+// Claude-centric profile cell (e.g. "opus") sent to codex. A value in the
+// Codex-only key was chosen deliberately for codex, so it is sent verbatim, the
+// same reasoning that lets an explicit per-call model through in
+// resolveCodexModelEffort. Setting the Codex-only model replaces the SSOT cell
+// whole: its effort is not borrowed onto a model it was never paired with, so
+// effort then comes from workflow.codex.effort alone.
 func codexSSOTModelEffort(projectDir string) config.ModelEffort {
 	if strings.TrimSpace(projectDir) == "" {
 		projectDir = projectDirResolver()
 	}
+	me := codexProfileModelEffort(projectDir)
+	model, effort := readCodexModelEffort(projectDir)
+	if model != "" {
+		me = config.ModelEffort{Model: model}
+	}
+	if effort != "" {
+		me.Effort = effort
+	}
+	return me
+}
+
+// codexProfileModelEffort is the SSOT half of codexSSOTModelEffort: the
+// profile-matrix cell for codexAuditAgentKey, returned whole or not at all. When
+// the resolved model is not codex-servable the paired effort is dropped with
+// it, because an effort value from another backend's vocabulary is no more
+// transmittable than its model id (ReasoningEffort is documented as "a
+// non-empty reasoning effort value advertised by the model").
+func codexProfileModelEffort(projectDir string) config.ModelEffort {
 	llm, err := loadLLMSectionOnly(filepath.Join(projectDir, ".moai", "config", "sections"))
 	if err != nil {
 		return config.ModelEffort{}
@@ -1233,6 +1262,10 @@ type CodexSetupResult struct {
 	AuthProvider     string
 	EnableReviewGate bool
 	AllowWrite       bool
+	// Model and Effort are the RESOLVED values codex would be sent
+	// (codexSSOTModelEffort); empty when nothing resolves.
+	Model  string
+	Effort string
 }
 
 // ProbeCodexSetup runs the same probe handleCodexSetup runs and returns the
@@ -1245,11 +1278,14 @@ func ProbeCodexSetup(ctx context.Context) CodexSetupResult {
 	binaryPath, err := codexLookPath(codexBinaryName)
 	installed := err == nil && binaryPath != ""
 	projectDir := projectDirResolver()
+	me := codexSSOTModelEffort(projectDir)
 	result := CodexSetupResult{
 		Installed:        installed,
 		AuthProvider:     codexAuthUnknown,
 		EnableReviewGate: readCodexReviewGateEnabled(projectDir),
 		AllowWrite:       readCodexTaskAllowWrite(projectDir),
+		Model:            me.Model,
+		Effort:           me.Effort,
 	}
 	if !installed {
 		return result
@@ -1285,7 +1321,12 @@ func handleCodexSetup(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTool
 		// (REQ-CX2-007; plan.md §D M0 write-mode decision, rejected alternative).
 		"enable_review_gate": s.EnableReviewGate,
 		"allow_write":        s.AllowWrite,
-		"node_bridge":        false, // explicit: REQ-MCP-007 Go-only reimplementation
+		// model and effort are the resolved values codex would be sent (the
+		// workflow.codex.* keys, else the SSOT cell when codex can serve it);
+		// always present, empty when nothing resolves.
+		"model":       s.Model,
+		"effort":      s.Effort,
+		"node_bridge": false, // explicit: REQ-MCP-007 Go-only reimplementation
 	}
 	if s.Installed {
 		result["binary"] = s.Binary
@@ -1413,4 +1454,41 @@ func readCodexTaskAllowWrite(projectDir string) bool {
 		return false
 	}
 	return doc.Workflow.Codex.Task.AllowWrite
+}
+
+// readCodexModelEffort reads workflow.codex.model and workflow.codex.effort from
+// `.moai/config/sections/workflow.yaml` and returns them trimmed. Unlike the two
+// opt-in readers above it is fail-OPEN, because an empty value here means
+// "unset" and hands resolution back to the llm.yaml SSOT rather than enabling
+// anything:
+//
+//   - projectDir empty / file missing / unreadable → ("", "")
+//   - YAML parse or type error                     → ("", "")
+//   - `workflow.codex` block or either key absent  → "" for that key
+//   - a set key                                     → its trimmed value
+//
+// The key path is NESTED under the file's `workflow:` root, the shape
+// config.Loader expects (config.CodexConfig.Model / Effort); the flat form is
+// NOT accepted as an alias. The distributed default is empty for both keys.
+func readCodexModelEffort(projectDir string) (model, effort string) {
+	if projectDir == "" {
+		return "", ""
+	}
+	configPath := filepath.Join(projectDir, ".moai", "config", "sections", "workflow.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", ""
+	}
+	var doc struct {
+		Workflow struct {
+			Codex struct {
+				Model  string `yaml:"model"`
+				Effort string `yaml:"effort"`
+			} `yaml:"codex"`
+		} `yaml:"workflow"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(doc.Workflow.Codex.Model), strings.TrimSpace(doc.Workflow.Codex.Effort)
 }

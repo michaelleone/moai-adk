@@ -61,6 +61,14 @@ workflow:
     codex:
         review_gate:
             enabled: false
+        # codex.model / codex.effort: Codex-only model id and reasoning effort.
+        # The model applies to codex_audit, codex_task and the review gate; the
+        # effort applies where codex accepts one (codex_task, adversarial
+        # reviews). Empty means unset: codex then uses the sync-auditor
+        # model/effort from llm.yaml when codex can serve that model, and its
+        # own default otherwise.
+        model: ""
+        effort: ""
     # multi.review_gate: opt-in Stop-hook gate for the multi-model review path.
     # It reads the most recent convergence result of the configured review
     # backends and keeps the turn going only when a required backend failed;
